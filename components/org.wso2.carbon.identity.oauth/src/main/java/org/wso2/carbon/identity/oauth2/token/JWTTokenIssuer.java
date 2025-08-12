@@ -41,6 +41,9 @@ import org.wso2.carbon.identity.application.authentication.framework.model.Authe
 import org.wso2.carbon.identity.base.IdentityConstants;
 import org.wso2.carbon.identity.core.util.IdentityTenantUtil;
 import org.wso2.carbon.identity.core.util.IdentityUtil;
+import org.wso2.carbon.identity.oauth.cache.AuthorizationGrantCache;
+import org.wso2.carbon.identity.oauth.cache.AuthorizationGrantCacheEntry;
+import org.wso2.carbon.identity.oauth.cache.AuthorizationGrantCacheKey;
 import org.wso2.carbon.identity.oauth.common.OAuthConstants;
 import org.wso2.carbon.identity.oauth.common.exception.InvalidOAuthClientException;
 import org.wso2.carbon.identity.oauth.config.OAuthServerConfiguration;
@@ -664,6 +667,27 @@ public class JWTTokenIssuer extends OauthTokenIssuerImpl {
         setClaimsForNonPersistence(jwtClaimsSetBuilder, authAuthzReqMessageContext, tokenReqMessageContext,
                 authenticatedUser, oAuthAppDO);
         String scope = getScope(authAuthzReqMessageContext, tokenReqMessageContext);
+
+        // Adding logic to add acr value to the JWT claims.
+        String authCode = null;
+
+        if (tokenReqMessageContext != null){
+                authCode = (String) tokenReqMessageContext.getProperty("AuthorizationCode");
+        }
+
+        if (authCode != null) {
+            AuthorizationGrantCacheEntry authzGrantCacheEntry =
+                    getAuthorizationGrantCacheEntryFromCode(authCode);
+            if (authzGrantCacheEntry != null) {
+               String acrValue = authzGrantCacheEntry.getSelectedAcrValue();
+                if (StringUtils.isNotEmpty(acrValue)) {
+                    jwtClaimsSetBuilder.claim("acr", acrValue);
+                }
+                long authTime = authzGrantCacheEntry.getAuthTime();
+                jwtClaimsSetBuilder.claim("auth_time", authTime);
+            }
+        }
+
         if (StringUtils.isNotEmpty(scope)) {
             jwtClaimsSetBuilder.claim(SCOPE, scope);
         }
@@ -708,6 +732,16 @@ public class JWTTokenIssuer extends OauthTokenIssuerImpl {
         }
 
         return jwtClaimsSet;
+    }
+
+    /**
+     * @param authorizationCode
+     * @return AuthorizationGrantCacheEntry contains user attributes and nonce value
+     */
+    private AuthorizationGrantCacheEntry getAuthorizationGrantCacheEntryFromCode(String authorizationCode) {
+
+        AuthorizationGrantCacheKey authorizationGrantCacheKey = new AuthorizationGrantCacheKey(authorizationCode);
+        return AuthorizationGrantCache.getInstance().getValueFromCacheByCode(authorizationGrantCacheKey);
     }
 
     /**
